@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
