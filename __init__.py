@@ -45,8 +45,11 @@ def json2obj(list_data, tmp_path:str, name:str):
     point_data = [[0.0, 0.0, 0.0] for _ in range(num)]
     # 法线坐标信息
     normal_data = [[0.0, 0.0, 0.0] for _ in range(num)]
+
     for point in list_data:
         index = point['index']
+        print(index)
+        print(point['p'])
         for p in range(3):
             point_data[index][p] = point['p'][p]
             normal_data[index][p] = point['n'][p]
@@ -82,7 +85,6 @@ def init_trans(obj):
         obj.location[2] = 0
 
 def track_input(input_path, tmp_path, traph):
-
 
     # 单位强制设置为毫米
     bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
@@ -411,7 +413,7 @@ class Track_output(bpy.types.Operator):
         traph = context.scene.traph
         track_output(traph.output_path, traph.tmp_path, traph)
         return {'FINISHED'}
-    
+
 
 # -----------UI类-----------
 class Track_ui(bpy.types.Panel):
@@ -446,6 +448,51 @@ class Track_ui(bpy.types.Panel):
         col.prop(scene, 'output_path', text="导出文件路径")
         col.operator("obj.trackoutput", text="导出",icon="EXPORT")
 
+def model_input(input_path, traph):
+
+    # 单位强制设置为毫米
+    bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
+
+    bpy.ops.wm.obj_import(filepath=input_path, directory=os.path.dirname(input_path), global_scale=0.001)
+    init_trans(bpy.context.object)
+    bpy.context.object.name = 'model'
+
+
+class Model_input(bpy.types.Operator):
+    # output bvh
+    bl_label='导入轨迹'
+    bl_idname = 'obj.modelinput' # no da xie
+    bl_options = {"REGISTER", "UNDO"}
+    
+    def execute(self, context):
+        traph = context.scene.traph
+        model_input(traph.input_path_model, traph)
+        return {'FINISHED'}
+
+
+class Model_ui(bpy.types.Panel):
+    bl_idname = "Object_ui"
+    bl_label = "模型管理工具"
+
+    # 标签分类
+    bl_category = "TRACK TOOL"
+
+    # ui_type
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="模型文件路径", icon="AUTO")
+
+        col = layout.column()
+        scene = context.scene.traph
+        
+        col.prop(scene, 'input_path_model', text="导入模型路径")
+        row = col.row(align=False)
+        row.operator("obj.modelinput", text="导入",icon="IMPORT")
+
+        
 # RNA属性 在当前场景中命名为traph子类
 class track_property(bpy.types.PropertyGroup):
     
@@ -456,13 +503,17 @@ class track_property(bpy.types.PropertyGroup):
     clear_blend: bpy.props.BoolProperty(name='clear_blend',default=True)
 
     output_path: bpy.props.StringProperty(name='output_path',subtype='FILE_PATH')
+
+    input_path_model: bpy.props.StringProperty(name='input_path_model',subtype='FILE_PATH')
     
     
 classGroup = [track_property,
               Track_ui,
               Track_input,
               Track_output,
-              Track_update
+              Track_update,
+              Model_input,
+              Model_ui
 ]
 
 
