@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 7, 0),
+    "version": (0, 8, 1),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -148,6 +148,11 @@ def track_input(input_path, tmp_path, traph):
     # 添加轴空物体
     normal_sim(tmp_path, traph)
 
+    # 将轨迹本身设为不可选， 避免操作点时误选
+    bpy.data.objects[traph.track_name + '_surface'].hide_select = True
+    bpy.data.objects[traph.track_name + '_edge'].hide_select = True
+
+
 class Track_input(bpy.types.Operator):
     # output bvh
     bl_label='导入轨迹'
@@ -161,18 +166,20 @@ class Track_input(bpy.types.Operator):
 
 
 # ------------导出轨迹类&运行函数-----------
-def point_list_write(point_object, tmp_data):
+def point_list_write(traph, label, tmp_data):
     scale = 1 # 单位强制设置为毫米，此处scale为1000
     point_list = []
     pos_list = []
     nor_list = []
-    for vertice in point_object.data.vertices:
-        pos_list.append([vertice.co[0], vertice.co[1], vertice.co[2]])
-        # TODO 法线信息写入
-        nor_list.append([1, 0, 0])
+    num = len(bpy.data.meshes[traph.track_name + '_' + label].vertices) # example_name
+    for i in range(num):
+        obj = bpy.data.objects[traph.track_name + '_' + label + '_' + str(i)] # example_name_0
 
-    assert len(pos_list) == len(nor_list)
-    assert len(pos_list) == len(tmp_data)
+        pos_list.append(obj.location)
+        # 弧度制 默认XYZ
+        nor_list.append([obj.rotation_euler[0], obj.rotation_euler[1], obj.rotation_euler[2]])
+
+
 
     point_list = []
     for i in range(len(pos_list)):
@@ -196,6 +203,10 @@ def build_normal_obj(traph, pos, nor, index, track_name):
     obj_tmp.scale[0] = scale*3
     obj_tmp.scale[1] = scale*3
     obj_tmp.scale[2] = scale
+    # 弧度制
+    obj_tmp.rotation_euler[0] = nor[0]
+    obj_tmp.rotation_euler[1] = nor[1]
+    obj_tmp.rotation_euler[2] = nor[2]
     """
     # 添加驱动器() # 该方案暂时搁置
     dri_pos_x = obj_tmp.driver_add('location', 0).driver
@@ -275,7 +286,7 @@ def normal_sim(tmp_path, traph):
     
     
 class Normal_show(bpy.types.Operator):
-    # output bvh
+    # 暂时整合入导入类，不进行单独operator
     bl_label='展示法线'
     bl_idname = 'obj.normalsim' # no da xie  
     bl_options = {"REGISTER", "UNDO"}
@@ -284,6 +295,7 @@ class Normal_show(bpy.types.Operator):
         traph = context.scene.traph
         normal_sim(traph.output_path, traph.tmp_path, traph)
         return {'FINISHED'}
+    
 # -----------更新轨迹类&运行函数-----------
 
 def write_obj(traph, path):
@@ -330,16 +342,21 @@ def write_obj(traph, path):
     json2obj(obj_data_edge, traph.tmp_path, f'{traph.track_name}_edge')
 
 def track_update(traph, tmp_path):
+
+    surface_name = traph.track_name + '_surface' # example_surface
+    edge_name = traph.track_name + '_edge'
+
     if not os.path.exists(os.path.join(traph.tmp_path, 'tmp.json')):
         raise ValueError("请输入正确临时文件路径")
     if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
         raise ValueError("轨迹物体缺失，请检查")
     write_obj(traph, traph.tmp_path)
+    
     # 重载obj数据
-    bpy.data.objects.remove(bpy.data.objects[traph.track_name + '_surface'])
-    bpy.data.objects.remove(bpy.data.objects[traph.track_name + '_edge'])
-    bpy.data.meshes.remove(bpy.data.meshes[traph.track_name + '_surface'])
-    bpy.data.meshes.remove(bpy.data.meshes[traph.track_name + '_edge'])
+    bpy.data.objects.remove(bpy.data.objects[surface_name])
+    bpy.data.objects.remove(bpy.data.objects[edge_name])
+    bpy.data.meshes.remove(bpy.data.meshes[surface_name])
+    bpy.data.meshes.remove(bpy.data.meshes[edge_name])
 
     bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{traph.track_name}_surface.obj'), directory=tmp_path, global_scale=1)
     init_trans(bpy.context.object)
@@ -350,7 +367,6 @@ def track_update(traph, tmp_path):
 
 
 class Track_update(bpy.types.Operator):
-    # output bvh
     bl_label='更新轨迹'
     bl_idname = 'obj.trackupdate' # no da xie  
     bl_options = {"REGISTER", "UNDO"}
@@ -362,8 +378,6 @@ class Track_update(bpy.types.Operator):
     
 # -----------导出轨迹类&运行函数-----------
 
-
-
 def track_output(output_path, tmp_path, traph):
     if not os.path.exists(output_path):
         raise ValueError("请输入正确文件输出路径")
@@ -373,8 +387,8 @@ def track_output(output_path, tmp_path, traph):
         raise ValueError("轨迹物体缺失，请检查")
     with open(os.path.join(tmp_path, 'tmp.json'), 'r') as f:
         tmp_data = json.load(f)
-    output_surface_data = point_list_write(bpy.data.objects[traph.track_name + '_surface'], tmp_data['traj_surface'])
-    output_edge_data = point_list_write(bpy.data.objects[traph.track_name + '_edge'], tmp_data['traj_edge'])
+    output_surface_data = point_list_write(traph, 'surface', tmp_data['traj_surface'])
+    output_edge_data = point_list_write(traph, 'edge', tmp_data['traj_edge'])
 
     output_data = {
         'traj_surface': output_surface_data,
@@ -389,7 +403,6 @@ def track_output(output_path, tmp_path, traph):
 
 
 class Track_output(bpy.types.Operator):
-    # output bvh
     bl_label='导出轨迹'
     bl_idname = 'obj.trackoutput' # no da xie  
     bl_options = {"REGISTER", "UNDO"}
