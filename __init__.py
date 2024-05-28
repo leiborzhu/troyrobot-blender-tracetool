@@ -46,8 +46,15 @@ def json2obj(list_data, tmp_path:str, name:str):
     # 法线坐标信息
     normal_data = [[0.0, 0.0, 0.0] for _ in range(num)]
 
+    # index reshape
+    index_offset = 0
+    index_list = []
     for point in list_data:
-        index = point['index']
+        index_list.append(point['index'])
+    index_offset = min(index_list)
+
+    for point in list_data:
+        index = point['index'] - index_offset
         print(index)
         print(point['p'])
         for p in range(3):
@@ -86,6 +93,8 @@ def init_trans(obj):
 
 def track_input(input_path, tmp_path, traph):
 
+    # 不被清除的保护列表
+    protect_list = ['model']
     # 单位强制设置为毫米
     bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
 
@@ -102,9 +111,11 @@ def track_input(input_path, tmp_path, traph):
     
     if traph.clear_blend:
         for obj in bpy.data.objects:
-            bpy.data.objects.remove(obj, do_unlink=True)
+            if obj.name not in protect_list:
+                bpy.data.objects.remove(obj, do_unlink=True)
         for mesh in bpy.data.meshes:
-            bpy.data.meshes.remove(mesh, do_unlink=True)
+            if mesh.name not in protect_list:
+                bpy.data.meshes.remove(mesh, do_unlink=True)
         for material in bpy.data.materials:
             bpy.data.materials.remove(material, do_unlink=True)
 
@@ -430,7 +441,7 @@ class Track_ui(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="轨迹文件路径", icon="TRACKING")
+        layout.label(text="轨迹文件管理", icon="TRACKING")
 
         col = layout.column()
         scene = context.scene.traph
@@ -438,7 +449,7 @@ class Track_ui(bpy.types.Panel):
         col.prop(scene, 'input_path', text="导入文件路径")
         col.prop(scene, 'tmp_path', text="临时文件路径")
         row = col.row(align=False)
-        row.operator("obj.trackinput", text="导入",icon="IMPORT")
+        row.operator("obj.trackinput", text="导入轨迹",icon="IMPORT")
         row.prop(scene, 'clear_blend', text="重置工程数据")
         row = col.row(align=False)
         row.operator("obj.trackupdate", text="更新轨迹",icon="FILE_REFRESH")
@@ -446,13 +457,14 @@ class Track_ui(bpy.types.Panel):
         
 
         col.prop(scene, 'output_path', text="导出文件路径")
-        col.operator("obj.trackoutput", text="导出",icon="EXPORT")
+        col.operator("obj.trackoutput", text="导出轨迹",icon="EXPORT")
 
 def model_input(input_path, traph):
 
     # 单位强制设置为毫米
     bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
-
+    if not os.path.basename(input_path).endswith('.obj'):
+        raise ValueError("请输入.obj文件")
     bpy.ops.wm.obj_import(filepath=input_path, directory=os.path.dirname(input_path), global_scale=0.001)
     init_trans(bpy.context.object)
     bpy.context.object.name = 'model'
@@ -483,14 +495,14 @@ class Model_ui(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="模型文件路径", icon="AUTO")
+        layout.label(text="模型文件管理", icon="AUTO")
 
         col = layout.column()
         scene = context.scene.traph
         
         col.prop(scene, 'input_path_model', text="导入模型路径")
         row = col.row(align=False)
-        row.operator("obj.modelinput", text="导入",icon="IMPORT")
+        row.operator("obj.modelinput", text="导入车模型",icon="IMPORT")
 
         
 # RNA属性 在当前场景中命名为traph子类
