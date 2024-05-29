@@ -73,7 +73,7 @@ def json2obj(list_data, tmp_path:str, name:str):
 
     for i in range(num - 1):
         line_lines.append(f"l {i+1} {i+2}\n")
-    line_lines.append(f"l {num-1} 1\n") # 当前默认轨迹首尾相连
+    line_lines.append(f"l {num} 1\n") # 当前默认轨迹首尾相连
 
     # 写入obj文件
     all_lines = point_lines + normal_lines + line_lines
