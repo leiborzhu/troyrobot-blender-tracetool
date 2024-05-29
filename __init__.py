@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 1),
+    "version": (0, 8, 3),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -9,10 +9,16 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
+# 0.8.2 -> 0.8.3更新
+# 去除首尾链接
+# mac临时文件夹地址优化
+# todo: 法线换算
+
 import bpy
 import os
 import sys
 import json
+import math
 
 from bpy.props import (
         IntProperty,
@@ -99,7 +105,10 @@ def track_input(input_path, tmp_path, traph):
     bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
 
     filepath = input_path
-    file_name = input_path.split('\\')[-1]
+    if sys.platform == 'darwin':
+        file_name = filepath.split('/')[-1]
+    else:
+        file_name = input_path.split('\\')[-1]
     directory = file_name.strip(file_name)
     if not file_name.endswith('.json'):
         raise ValueError("请输入正确的json文件路径")
@@ -107,7 +116,9 @@ def track_input(input_path, tmp_path, traph):
         directory = os.path.join(os.path.abspath(__file__), directory)
 
     if not os.path.exists(tmp_path):
-        raise ValueError("请输入正确的临时文件放置路径")
+        # 为支持mac设备如此设置
+        # raise ValueError("请输入正确的临时文件放置路径")
+        os.makedirs(tmp_path)
     
     if traph.clear_blend:
         for obj in bpy.data.objects:
@@ -360,7 +371,7 @@ def track_update(traph, tmp_path):
     edge_name = traph.track_name + '_edge'
 
     if not os.path.exists(os.path.join(traph.tmp_path, 'tmp.json')):
-        raise ValueError("请输入正确临时文件路径")
+        raise ValueError("临时文件缺失，请重新导入")
     if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
         raise ValueError("轨迹物体缺失，请检查")
     write_obj(traph, traph.tmp_path)
