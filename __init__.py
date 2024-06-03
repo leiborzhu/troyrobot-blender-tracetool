@@ -9,9 +9,8 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
-# 0.8.4更新
-# 轨迹组件待优化
-# 导出待优化
+# 0.9.0更新
+# 喷涂可视化
 
 import bpy
 import os
@@ -251,9 +250,9 @@ def build_normal_obj(traph, pos, nor, index, track_name):
     cons_rotation.target_space = 'WORLD'
     cons_rotation.owner_space = 'WORLD'
 
+    # 删除临时对象
     bpy.context.view_layer.objects.active = obj_tmp
     # bpy.context.space_data.context = 'CONSTRAINT'
-
     bpy.ops.constraint.apply(constraint='normal')
     nor_tmp.hide_viewport = True
     bpy.data.objects.remove(bpy.data.objects[track_name + '_' + str(index) + '_norend'])
@@ -349,8 +348,10 @@ def euler_to_normal(euler):
     Rz = np.array([[np.cos(z_euler), -np.sin(z_euler), 0],
                 [np.sin(z_euler), np.cos(z_euler), 0],
                 [0, 0, 1]])
-
-    return list(np.dot(np.dot(np.dot([0, 0, 1], Rx), Ry), Rz))
+    
+    R = np.dot(np.dot(Rz, Ry), Rx)
+    res = np.dot(R, np.transpose([0, 0, 1]))
+    return list(res)
 
 def normal_sim(tmp_path, traph):
     # 导入法线数据
