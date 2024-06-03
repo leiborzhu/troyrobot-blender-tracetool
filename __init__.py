@@ -251,9 +251,12 @@ def build_normal_obj(traph, pos, nor, index, track_name):
     cons_rotation.target_space = 'WORLD'
     cons_rotation.owner_space = 'WORLD'
 
-    # bpy.ops.constraint.apply(constraint=cons_rotation, owner='OBJECT')
+    bpy.context.view_layer.objects.active = obj_tmp
+    # bpy.context.space_data.context = 'CONSTRAINT'
+
+    bpy.ops.constraint.apply(constraint='normal')
     nor_tmp.hide_viewport = True
-    # bpy.data.objects.remove(bpy.data.objects[track_name + '_' + str(index) + '_norend'])
+    bpy.data.objects.remove(bpy.data.objects[track_name + '_' + str(index) + '_norend'])
 
     """
     # 添加驱动器() # 该方案暂时搁置
