@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 4),
+    "version": (0, 8, 6),
     "blender": (3, 6, 8),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -134,46 +134,48 @@ def track_input(input_path, tmp_path, traph):
     # 读取json文件
     with open(filepath, 'r') as f:
         raw_data = json.load(f)
-    traj_surface = raw_data['traj_surface']
-    traj_edge = raw_data['traj_edge']
-
-    raw_name = file_name.split('.')[0]
-    json2obj(traj_surface, tmp_path, f'{raw_name}_surface')
-    json2obj(traj_edge, tmp_path, f'{raw_name}_edge')
-
-    # 导入obj文件
-    bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{raw_name}_surface.obj'), directory=tmp_path, global_scale=0.001)
-    init_trans(bpy.context.object)
-    bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{raw_name}_edge.obj'), directory=tmp_path, global_scale=0.001)
-    init_trans(bpy.context.object)
+    # 目前轨迹的名称、数量不一定，如有可能无edge值，需通用化处理
+    labels = []
+    raw_name = file_name.split('.')[0] # raw_name like black_right_door....
     traph.track_name = raw_name
+    tmp_data = {} 
 
-    # bpy.ops.wm.obj_import(filepath="input_path")
-    # 处理speed, spary等其他信息
-    # TODO: 目前没有blender合适自定义property承载这些信息，先利用tmp.json文件的形式处理
+    for key in raw_data.keys():
+        labels.append(key)
 
-    tmp_traj_surface = []
-    tmp_traj_edge = []
-    for point in traj_surface:
-        tmp_traj_surface.append({'speed': point['speed'], 'spray': point['spray'], 'index': point['index'], 'n': point['n']})
-    for point in traj_edge:
-        tmp_traj_edge.append({'speed': point['speed'], 'spray': point['spray'], 'index': point['index'], 'n': point['n']})
+    for lable in labels:
+        
+        label_name = lable.split('_')[-1] # traj_surface -> surface
+        traj_data = raw_data[f'traj_{label_name}']
 
-    tmp_data = {
-        'traj_surface': tmp_traj_surface,
-        'traj_edge': tmp_traj_edge
-    }
+        json2obj(traj_data, tmp_path, f'{raw_name}_{label_name}')
+
+        # 导入obj文件
+        bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{raw_name}_{label_name}.obj'), directory=tmp_path, global_scale=0.001)
+        init_trans(bpy.context.object)
+    
+
+        # bpy.ops.wm.obj_import(filepath="input_path")
+        # 处理speed, spary等其他信息
+        # TODO: 目前没有blender合适自定义property承载这些信息，先利用tmp.json文件的形式处理
+
+        tmp_traj_data = []
+
+        for point in traj_data:
+            tmp_traj_data.append({'speed': point['speed'], 'spray': point['spray'], 'index': point['index'], 'n': point['n']})
+
+        tmp_data[f'traj_{label_name}'] = tmp_traj_data
+
+       
+
+        # 将轨迹本身设为不可选， 避免操作点时误选
+        bpy.data.objects[f'{traph.track_name}_{label_name}'].hide_select = True
 
     with open(os.path.join(tmp_path, 'tmp.json'), 'w') as f:
         json.dump(tmp_data, f)
         print("临时数据写入完成")
-
     # 添加轴空物体
-    normal_sim(tmp_path, traph)
-
-    # 将轨迹本身设为不可选， 避免操作点时误选
-    bpy.data.objects[traph.track_name + '_surface'].hide_select = True
-    bpy.data.objects[traph.track_name + '_edge'].hide_select = True
+    normal_sim(tmp_path, traph)   
 
 
 class Track_input(bpy.types.Operator):
@@ -357,30 +359,26 @@ def normal_sim(tmp_path, traph):
     # 导入法线数据
     if not os.path.exists(os.path.join(tmp_path, 'tmp.json')):
         raise ValueError("请输入正确临时文件路径")
+    '''
     if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
         raise ValueError("轨迹物体缺失，请检查")
-    
+    '''
     with open(os.path.join(tmp_path, 'tmp.json'), 'r') as f:
         tmp_data = json.load(f)
     
-    nor_surface = []
-    nor_edge = []
+    c = []
+    labels = tmp_data.keys()
+    nor_data = []
+    for label in labels:
+        label_name = label.split('_')[-1]
+        for point in tmp_data[label]:
+            nor_data.append(point['n'])
 
-    for point in tmp_data['traj_surface']:
-        nor_surface.append(point['n'])
-    for point in tmp_data['traj_edge']:
-        nor_edge.append(point['n'])
-
-    for i, vertice in enumerate(bpy.data.meshes[traph.track_name + '_surface'].vertices):
-        pos_cur = vertice.co
-        # 换算
-        euler_cur = nor_surface[i]
-        build_normal_obj(traph, pos_cur, euler_cur, i, traph.track_name + '_surface')
-        
-    for i, vertice in enumerate(bpy.data.meshes[traph.track_name + '_edge'].vertices):
-        pos_cur = vertice.co
-        euler_cur = nor_edge[i]
-        build_normal_obj(traph, pos_cur, euler_cur, i, traph.track_name + '_edge')
+        for i, vertice in enumerate(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices):
+            pos_cur = vertice.co
+            # 换算
+            euler_cur = nor_data[i]
+            build_normal_obj(traph, pos_cur, euler_cur, i, f'{traph.track_name}_{label_name}')
     
     
     
@@ -400,71 +398,69 @@ class Normal_show(bpy.types.Operator):
 def write_obj(traph, path):
     if not os.path.exists(path):
         os.makedirs(path)
-    pos_surface = []
-    pos_edge = []
-    nor_surface = []
-    nor_edge = []
-    num_surface = len(bpy.data.meshes[traph.track_name + '_surface'].vertices)
-    num_edge = len(bpy.data.meshes[traph.track_name + '_edge'].vertices)
-    for i in range(num_surface): 
-        pos_surface.append(bpy.data.objects[f'{traph.track_name}_surface_{i}'].location)
-        nor_surface.append(bpy.data.objects[f'{traph.track_name}_surface_{i}'].rotation_euler)
-    
-    for i in range(num_edge): 
-        pos_edge.append(bpy.data.objects[f'{traph.track_name}_edge_{i}'].location)
-        nor_edge.append(bpy.data.objects[f'{traph.track_name}_edge_{i}'].rotation_euler)
+    pos_data = []
+    nor_data = []
 
-    with open(os.path.join(traph.tmp_path, 'tmp.json'), 'r') as f:
-        tmp_data = json.load(f)
+    # 从 data.meshes检查所拥有的labelname
+    labels_name = []
+    for mesh in bpy.data.meshes:
+        if mesh.name.split('_')[0] == traph.track_name:
+            labels_name.append(mesh.name.split('_')[-1])
 
-    obj_data_surface = []
-    obj_data_edge = []
+    for label_name in labels_name:
+        num = len(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices)
+        for i in range(num): 
+            pos_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].location)
+            nor_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].rotation_euler)
 
-    for i in range(num_surface):
-        obj_data_surface.append(
-            {'p': pos_surface[i],
-            'n': nor_surface[i],
-            "speed": tmp_data['traj_surface'][i]['speed'],
-            "index": tmp_data['traj_surface'][i]['index'],
-            "spray": tmp_data['traj_surface'][i]['spray']}
-            )
-    for i in range(num_edge):
-        obj_data_edge.append(
-            {'p': pos_edge[i],
-            'n': nor_edge[i],
-            "speed": tmp_data['traj_edge'][i]['speed'],
-            "index": tmp_data['traj_edge'][i]['index'],
-            "spray": tmp_data['traj_edge'][i]['spray']}
-            )
+        with open(os.path.join(traph.tmp_path, 'tmp.json'), 'r') as f:
+            tmp_data = json.load(f)
 
-    json2obj(obj_data_surface, traph.tmp_path, f'{traph.track_name}_surface')
-    json2obj(obj_data_edge, traph.tmp_path, f'{traph.track_name}_edge')
+        obj_data = []
+
+        for i in range(num):
+            obj_data.append(
+                {'p': pos_data[i],
+                'n': nor_data[i],
+                "speed": tmp_data[f'traj_{label_name}'][i]['speed'],
+                "index": tmp_data[f'traj_{label_name}'][i]['index'],
+                "spray": tmp_data[f'traj_{label_name}'][i]['spray']}
+                )
+
+
+        json2obj(obj_data, traph.tmp_path, f'{traph.track_name}_{labels_name}')
 
 def track_update(traph, tmp_path):
+    # 从data.meshes检查所拥有的labelname
+    labels_name = []
+    for mesh in bpy.data.meshes:
+        if mesh.name.split('_')[0] == traph.track_name:
+            labels_name.append(mesh.name.split('_')[-1]) # surface/edge
 
-    surface_name = traph.track_name + '_surface' # example_surface
-    edge_name = traph.track_name + '_edge'
+    for label_name in labels_name:
+        
+        obj_name = traph.track_name + '_' + label_name # example_surface
 
-    if not os.path.exists(os.path.join(traph.tmp_path, 'tmp.json')):
-        raise ValueError("临时文件缺失，请重新导入")
-    if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
-        raise ValueError("轨迹物体缺失，请检查")
-    write_obj(traph, traph.tmp_path)
-    
-    # 重载obj数据
-    bpy.data.objects.remove(bpy.data.objects[surface_name])
-    bpy.data.objects.remove(bpy.data.objects[edge_name])
-    bpy.data.meshes.remove(bpy.data.meshes[surface_name])
-    bpy.data.meshes.remove(bpy.data.meshes[edge_name])
+        if not os.path.exists(os.path.join(traph.tmp_path, 'tmp.json')):
+            raise ValueError("临时文件缺失，请重新导入")
+        """
+        if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
+            raise ValueError("轨迹物体缺失，请检查")
+        """
+        write_obj(traph, traph.tmp_path)
+        
+        # 重载obj数据
+        bpy.data.objects.remove(bpy.data.objects[obj_name])
 
-    bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{traph.track_name}_surface.obj'), directory=tmp_path, global_scale=1)
-    init_trans(bpy.context.object)
-    bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{traph.track_name}_edge.obj'), directory=tmp_path, global_scale=1)
-    init_trans(bpy.context.object)
+        bpy.data.meshes.remove(bpy.data.meshes[obj_name])
 
-    # 将轨迹本身设为不可选， 避免操作点时误选
-    bpy.data.objects[traph.track_name + '_surface'].hide_select = True
-    bpy.data.objects[traph.track_name + '_edge'].hide_select = True
+
+        bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{traph.track_name}_{label_name}.obj'), directory=tmp_path, global_scale=1)
+        init_trans(bpy.context.object)
+
+        # 将轨迹本身设为不可选， 避免操作点时误选
+        bpy.data.objects[f'{traph.track_name}_{label_name}'].hide_select = True
+
 
     
 
@@ -485,18 +481,18 @@ def track_output(output_path, tmp_path, traph):
     if not os.path.exists(output_path):
         raise ValueError("请输入正确文件输出路径")
     if not os.path.exists(os.path.join(tmp_path, 'tmp.json')):
-        raise ValueError("请输入正确临时文件路径")
-    if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
-        raise ValueError("轨迹物体缺失，请检查")
+        raise ValueError("请输入正确临时文件路径") 
+    # if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
+        # raise ValueError("轨迹物体缺失，请检查")
     with open(os.path.join(tmp_path, 'tmp.json'), 'r') as f:
         tmp_data = json.load(f)
-    output_surface_data = point_list_write(traph, 'surface', tmp_data['traj_surface'])
-    output_edge_data = point_list_write(traph, 'edge', tmp_data['traj_edge'])
+    output_data = {}
+    # 从data.meshes搜索
+    for key in bpy.data.meshes.keys():
+        label_name = key.split('_')[-1]
+        output_data = point_list_write(traph, f'{label_name}', tmp_data[f'traj_{label_name}'])
 
-    output_data = {
-        'traj_surface': output_surface_data,
-        'traj_edge': output_edge_data
-    }
+        output_data[f'traj_{label_name}'] = output_data
 
     with open(os.path.join(output_path, f'{traph.track_name}.json'), 'w') as f:
         json.dump(output_data, f)
