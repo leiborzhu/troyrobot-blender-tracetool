@@ -18,6 +18,7 @@ import sys
 import json
 import math
 import numpy as np
+import warnings
 
 from bpy.props import (
         IntProperty,
@@ -44,7 +45,6 @@ def json2obj(list_data, tmp_path:str, name:str):
     num = len(list_data)
     if num < 2:
         raise ValueError("轨迹点数量必须大于等于2")
-    print(name)
     name = name.split('.')[0]
     # 点坐标信息
     point_data = [[0.0, 0.0, 0.0] for _ in range(num)]
@@ -60,8 +60,6 @@ def json2obj(list_data, tmp_path:str, name:str):
 
     for point in list_data:
         index = point['index'] - index_offset
-        print(index)
-        print(point['p'])
         for p in range(3):
             point_data[index][p] = point['p'][p]
             normal_data[index][p] = point['n'][p]
@@ -143,11 +141,13 @@ def track_input(input_path, tmp_path, traph):
     for key in raw_data.keys():
         labels.append(key)
 
-    for lable in labels:
+    for label in labels:
         
-        label_name = lable.split('_')[-1] # traj_surface -> surface
+        label_name = label.split('_')[-1] # traj_surface -> surface
         traj_data = raw_data[f'traj_{label_name}']
-
+        if len(traj_data) == 0:
+            warnings.warn("该轨迹无数据", UserWarning)
+            continue
         json2obj(traj_data, tmp_path, f'{raw_name}_{label_name}')
 
         # 导入obj文件
@@ -366,13 +366,16 @@ def normal_sim(tmp_path, traph):
     with open(os.path.join(tmp_path, 'tmp.json'), 'r') as f:
         tmp_data = json.load(f)
     
-    c = []
+    
     labels = tmp_data.keys()
-    nor_data = []
+    
     for label in labels:
         label_name = label.split('_')[-1]
+        nor_data = []
+        spray_data = []
         for point in tmp_data[label]:
             nor_data.append(point['n'])
+            spray_data.append(point['spray'])
 
         for i, vertice in enumerate(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices):
             pos_cur = vertice.co
