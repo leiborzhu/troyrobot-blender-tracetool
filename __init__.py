@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 6),
+    "version": (0, 8, 7),
     "blender": (3, 6, 8),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -9,6 +9,9 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
+# 0.8.7更新
+# spray可视化
+
 # 0.9.0更新
 # 喷涂可视化
 
@@ -94,8 +97,17 @@ def init_trans(obj):
         obj.location[1] = 0
         obj.location[2] = 0
 
-def track_input(input_path, tmp_path, traph):
+def view_update():
+    # 界面优化选项
+    pass
+    # bpy.context.space_data.overlay.show_stats = True # 物体信息
+    # bpy.context.space_data.overlay.show_object_origins = True
 
+
+
+def track_input(input_path, tmp_path, traph):
+    
+    view_update()
     # 不被清除的保护列表
     protect_list = ['model']
     # 单位强制设置为毫米
@@ -174,8 +186,18 @@ def track_input(input_path, tmp_path, traph):
     with open(os.path.join(tmp_path, 'tmp.json'), 'w') as f:
         json.dump(tmp_data, f)
         print("临时数据写入完成")
+    
+    # 添加材料
+    for mat_name in ['spray_on', 'spray_off']:
+        if mat_name not in bpy.data.materials:
+            m = bpy.data.materials.new(mat_name)
+            if mat_name == 'spray_on':
+                m.diffuse_color = (0.8, 0.04, 0.04, 1) # 红
+            else:
+                m.diffuse_color = (0, 0, 0, 1) # 灰白
+            
     # 添加轴空物体
-    normal_sim(tmp_path, traph)   
+    normal_spray_sim(tmp_path, traph)   
 
 
 class Track_input(bpy.types.Operator):
@@ -306,6 +328,8 @@ def build_normal_obj(traph, pos, nor, index, track_name):
     dri_config_location(dri_pos_z, config_pos_z)
     """
 
+    return obj_tmp.name
+
 def normal_to_euler(nor):
 
     dx = 0
@@ -355,8 +379,9 @@ def euler_to_normal(euler):
     res = np.dot(R, np.transpose([0, 0, 1]))
     return list(res)
 
-def normal_sim(tmp_path, traph):
+def normal_spray_sim(tmp_path, traph):
     # 导入法线数据
+    bpy.ops.view3d.snap_cursor_to_center() 
     if not os.path.exists(os.path.join(tmp_path, 'tmp.json')):
         raise ValueError("请输入正确临时文件路径")
     '''
@@ -381,20 +406,71 @@ def normal_sim(tmp_path, traph):
             pos_cur = vertice.co
             # 换算
             euler_cur = nor_data[i]
-            build_normal_obj(traph, pos_cur, euler_cur, i, f'{traph.track_name}_{label_name}')
-    
-    
-    
-class Normal_show(bpy.types.Operator):
-    # 暂时整合入导入类，不进行单独operator
-    bl_label='展示法线'
-    bl_idname = 'obj.normalsim' # no da xie  
-    bl_options = {"REGISTER", "UNDO"}
+            name_father = build_normal_obj(traph, pos_cur, euler_cur, i, f'{traph.track_name}_{label_name}')
+            spray_obj(spray_data[i], pos_cur, f'{traph.track_name}_{label_name}_{i}', name_father)
 
-    def execute(self, context):
-        traph = context.scene.traph
-        normal_sim(traph.output_path, traph.tmp_path, traph)
-        return {'FINISHED'}
+def spray_obj(data_label, pos, name, name_father):
+    bpy.ops.mesh.primitive_solid_add()
+    obj = bpy.context.object
+    obj.location = [pos[0]/1000, pos[1]/1000, pos[2]/1000]
+    obj.scale = [0.01, 0.01, 0.01]
+    obj.name = f'{name}_spray'
+    bpy.ops.object.material_slot_add()
+    if data_label == True:
+        obj.material_slots[''].material = bpy.data.materials['spray_on']
+    else:
+        obj.material_slots[''].material = bpy.data.materials['spray_off']
+    
+    # 增加驱动器
+    
+    dri_pos_x = obj.driver_add('location', 0).driver
+    dri_pos_y = obj.driver_add('location', 1).driver
+    dri_pos_z = obj.driver_add('location', 2).driver
+    
+    def dri_config_location(con_driver: bpy.types.Driver, con_dict: dict):
+        con_driver.type = 'SCRIPTED'
+
+        for i in range(len(con_dict['name'])):
+            con_var = con_driver.variables.new()
+            con_var.name = con_dict['name'][i]
+            con_var.targets[0].id_type = 'OBJECT'
+            con_var.targets[0].id = bpy.data.objects[name_father]
+            con_var.targets[0].data_path = con_dict['data_path'][i]
+        
+        con_driver.expression = con_dict.get('expression')
+
+    config_pos_x = {
+        'name':['POS_X'],
+        'data_path':['location[0]'],
+        'data_type':'location',
+        'expression': 'POS_X',
+        'axis':0
+    }
+
+    config_pos_y = {
+        'name':['POS_Y'],
+        'data_path':['location[1]'],
+        'data_type':'location',
+        'expression': 'POS_Y',
+        'axis':1
+    }
+
+    config_pos_z = {
+        'name':['POS_Z'],
+        'data_path':['location[2]'],
+        'data_type':'location',
+        'expression': 'POS_Z',
+        'axis':2
+    }
+
+    dri_config_location(dri_pos_x, config_pos_x)
+    dri_config_location(dri_pos_y, config_pos_y)
+    dri_config_location(dri_pos_z, config_pos_z)
+    
+    # 将spray物体设为不可选， 避免操作点时误选
+    bpy.data.objects[f'{name}_spray'].hide_select = True
+    
+        
     
 # -----------更新轨迹类&运行函数-----------
 
@@ -411,6 +487,7 @@ def write_obj(traph, path):
             labels_name.append(mesh.name.split('_')[-1])
 
     for label_name in labels_name:
+
         num = len(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices)
         for i in range(num): 
             pos_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].location)
@@ -430,8 +507,8 @@ def write_obj(traph, path):
                 "spray": tmp_data[f'traj_{label_name}'][i]['spray']}
                 )
 
-
-        json2obj(obj_data, traph.tmp_path, f'{traph.track_name}_{labels_name}')
+        # print(f'{traph.track_name}_{labels_name}')
+        json2obj(obj_data, traph.tmp_path, f'{traph.track_name}_{label_name}')
 
 def track_update(traph, tmp_path):
     # 从data.meshes检查所拥有的labelname
@@ -456,7 +533,6 @@ def track_update(traph, tmp_path):
         bpy.data.objects.remove(bpy.data.objects[obj_name])
 
         bpy.data.meshes.remove(bpy.data.meshes[obj_name])
-
 
         bpy.ops.wm.obj_import(filepath=os.path.join(tmp_path, f'{traph.track_name}_{label_name}.obj'), directory=tmp_path, global_scale=1)
         init_trans(bpy.context.object)
@@ -513,6 +589,15 @@ class Track_output(bpy.types.Operator):
         traph = context.scene.traph
         track_output(traph.output_path, traph.tmp_path, traph)
         return {'FINISHED'}
+
+# -----------设置spray可视化点------------
+# 暂时整合入track_input，不单独使用
+class Spray_view(bpy.types.Operator):
+    bl_label='spray显示'
+    bl_idname = 'obj.sprayview' # no da xie  
+    bl_options = {"REGISTER", "UNDO"}
+    def execute(self, context):
+        pass
 
 
 # -----------UI类-----------
