@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 7),
+    "version": (0, 8, 8),
     "blender": (3, 6, 8),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -9,8 +9,9 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
-# 0.8.7更新
+# 0.8.8更新
 # spray可视化
+# process支持
 
 # 0.9.0更新
 # 喷涂可视化
@@ -151,7 +152,8 @@ def track_input(input_path, tmp_path, traph):
     tmp_data = {} 
 
     for key in raw_data.keys():
-        labels.append(key)
+        if key != "process":
+            labels.append(key)
 
     for label in labels:
         
@@ -178,10 +180,27 @@ def track_input(input_path, tmp_path, traph):
 
         tmp_data[f'traj_{label_name}'] = tmp_traj_data
 
-       
-
         # 将轨迹本身设为不可选， 避免操作点时误选
         bpy.data.objects[f'{traph.track_name}_{label_name}'].hide_select = True
+
+    # tmp_data补充process信息
+    tmp_data['process'] = {}
+    if 'process' in raw_data.keys():
+        tmp_data['process'] = raw_data['process']
+
+        # 显示process信息
+        try:
+            traph.process_type = raw_data['process']['process_type']
+        except:
+            traph.process_type = '3'
+        try:
+            traph.color = raw_data['process']['color']
+        except:
+            traph.color = '3'
+        try:
+            traph.oil_brand = raw_data['process']['oil_brand']
+        except:
+            traph.oil_brand = '3'
 
     with open(os.path.join(tmp_path, 'tmp.json'), 'w') as f:
         json.dump(tmp_data, f)
@@ -390,9 +409,10 @@ def normal_spray_sim(tmp_path, traph):
     '''
     with open(os.path.join(tmp_path, 'tmp.json'), 'r') as f:
         tmp_data = json.load(f)
-    
-    
-    labels = tmp_data.keys()
+    labels = []
+    for label in tmp_data.keys():
+        if label != 'process':
+            labels.append(label)
     
     for label in labels:
         label_name = label.split('_')[-1]
@@ -474,32 +494,26 @@ def spray_obj(data_label, pos, name, name_father):
     
 # -----------更新轨迹类&运行函数-----------
 
-def write_obj(traph, path):
+def write_obj(traph, path, label_name):
     if not os.path.exists(path):
         os.makedirs(path)
     pos_data = []
     nor_data = []
 
     # 从 data.meshes检查所拥有的labelname
-    labels_name = []
-    for mesh in bpy.data.meshes:
-        if mesh.name.split('_')[0] == traph.track_name:
-            labels_name.append(mesh.name.split('_')[-1])
 
-    for label_name in labels_name:
+    num = len(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices)
+    for i in range(num): 
+        pos_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].location)
+        nor_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].rotation_euler)
 
-        num = len(bpy.data.meshes[f'{traph.track_name}_{label_name}'].vertices)
-        for i in range(num): 
-            pos_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].location)
-            nor_data.append(bpy.data.objects[f'{traph.track_name}_{label_name}_{i}'].rotation_euler)
-
-        with open(os.path.join(traph.tmp_path, 'tmp.json'), 'r') as f:
+    with open(os.path.join(traph.tmp_path, 'tmp.json'), 'r') as f:
             tmp_data = json.load(f)
 
-        obj_data = []
+    obj_data = []
 
-        for i in range(num):
-            obj_data.append(
+    for i in range(num):
+        obj_data.append(
                 {'p': pos_data[i],
                 'n': nor_data[i],
                 "speed": tmp_data[f'traj_{label_name}'][i]['speed'],
@@ -507,16 +521,18 @@ def write_obj(traph, path):
                 "spray": tmp_data[f'traj_{label_name}'][i]['spray']}
                 )
 
-        # print(f'{traph.track_name}_{labels_name}')
-        json2obj(obj_data, traph.tmp_path, f'{traph.track_name}_{label_name}')
+    # print(f'{traph.track_name}_{labels_name}')
+    json2obj(obj_data, traph.tmp_path, f'{traph.track_name}_{label_name}')
 
 def track_update(traph, tmp_path):
     # 从data.meshes检查所拥有的labelname
     labels_name = []
     for mesh in bpy.data.meshes:
-        if mesh.name.split('_')[0] == traph.track_name:
-            labels_name.append(mesh.name.split('_')[-1]) # surface/edge
-
+        s = mesh.name
+        # print(s[:s.rfind('_')], traph.track_name)
+        if s[:s.rfind('_')] == traph.track_name:
+            labels_name.append(mesh.name.split('_')[-1])
+    # print(labels_name)
     for label_name in labels_name:
         
         obj_name = traph.track_name + '_' + label_name # example_surface
@@ -527,7 +543,7 @@ def track_update(traph, tmp_path):
         if traph.track_name + '_surface' not in bpy.data.objects.keys() or traph.track_name + '_edge' not in bpy.data.objects.keys():
             raise ValueError("轨迹物体缺失，请检查")
         """
-        write_obj(traph, traph.tmp_path)
+        write_obj(traph, traph.tmp_path, label_name)
         
         # 重载obj数据
         bpy.data.objects.remove(bpy.data.objects[obj_name])
@@ -568,11 +584,16 @@ def track_output(output_path, tmp_path, traph):
     output_data = {}
     # 从data.meshes搜索
     for key in bpy.data.meshes.keys():
-        label_name = key.split('_')[-1]
-        output_data = point_list_write(traph, f'{label_name}', tmp_data[f'traj_{label_name}'])
+        if '_' in key:
+            label_name = key.split('_')[-1]
+            output_track = point_list_write(traph, f'{label_name}', tmp_data[f'traj_{label_name}'])
+            output_data[f'traj_{label_name}'] = output_track
 
-        output_data[f'traj_{label_name}'] = output_data
-
+    output_data['process'] = {}
+    if 'process' in tmp_data.keys():
+        output_data['process']['process_type'] = traph.process_type
+        output_data['process']['color'] = traph.color
+        output_data['process']['oil_brand'] = traph.oil_brand
     with open(os.path.join(output_path, f'{traph.track_name}.json'), 'w') as f:
         json.dump(output_data, f)
         print("轨迹文件写入完成")
@@ -623,6 +644,10 @@ class Track_ui(bpy.types.Panel):
         col.prop(scene, 'input_path', text="导入文件路径")
         col.prop(scene, 'tmp_path', text="临时文件路径")
         row = col.row(align=False)
+        row.prop(scene, 'process_type', text="处理类型", icon='MATFLUID')
+        row.prop(scene, 'color', text="颜色", icon='COLORSET_13_VEC')
+        row.prop(scene, 'oil_brand', text="车漆品牌", icon='COLOR')
+        row = col.row(align=False)
         row.operator("obj.trackinput", text="导入轨迹",icon="IMPORT")
         row.prop(scene, 'clear_blend', text="重置工程数据")
         row = col.row(align=False)
@@ -646,7 +671,7 @@ def model_input(input_path, traph):
 
 class Model_input(bpy.types.Operator):
     # output bvh
-    bl_label='导入轨迹'
+    bl_label='导入模型'
     bl_idname = 'obj.modelinput' # no da xie
     bl_options = {"REGISTER", "UNDO"}
     
@@ -691,6 +716,10 @@ class track_property(bpy.types.PropertyGroup):
     output_path: bpy.props.StringProperty(name='output_path',subtype='FILE_PATH')
 
     input_path_model: bpy.props.StringProperty(name='input_path_model',subtype='FILE_PATH')
+
+    process_type: bpy.props.EnumProperty(name='process_type',items=[('1','None','无'),('VarnishFog','VarnishFog',''),('3','其他','')])
+    color: bpy.props.EnumProperty(name='color',items=[('1','None','无'),('Light','Light',''),('3','其他','')])
+    oil_brand: bpy.props.EnumProperty(name='oil_brand',items=[('1','None','无'),('BASF','BASF',''),('3','其他','')])
     
     
 classGroup = [track_property,
