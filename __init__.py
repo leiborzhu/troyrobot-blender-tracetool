@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 9),
+    "version": (0, 9, 0),
     "blender": (3, 6, 8),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -9,12 +9,11 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
-# 0.8.9更新
-# addon info
 
 # 0.9.0更新
-# 喷涂可视化
-# 顶点绘制路径
+# 喷涂可视化雏形
+# 轨迹管理更新
+
 import bpy
 import os
 import sys
@@ -143,6 +142,9 @@ def track_input(input_path, tmp_path, traph):
                 bpy.data.meshes.remove(mesh, do_unlink=True)
         for material in bpy.data.materials:
             bpy.data.materials.remove(material, do_unlink=True)
+        for collection in bpy.data.collections:
+            if collection.name != 'Collection':
+                bpy.data.collections.remove(collection, do_unlink=True)
 
     # bpy.ops.wm.obj_import(filepath=filepath, directory=directory)
         
@@ -154,13 +156,16 @@ def track_input(input_path, tmp_path, traph):
     raw_name = file_name.split('.')[0] # raw_name like black_right_door....
     traph.track_name = raw_name
     tmp_data = {} 
+    scene = bpy.context.scene
 
     for key in raw_data.keys():
         if key != "process":
             labels.append(key)
+            collection = bpy.data.collections.new(key)
+            scene.collection.children.link(collection)
 
     for label in labels:
-        
+        collection = bpy.data.collections[label]
         label_name = label.split('_')[-1] # traj_surface -> surface
         traj_data = raw_data[f'traj_{label_name}']
         if len(traj_data) == 0:
@@ -186,6 +191,7 @@ def track_input(input_path, tmp_path, traph):
 
         # 将轨迹本身设为不可选， 避免操作点时误选
         bpy.data.objects[f'{traph.track_name}_{label_name}'].hide_select = True
+        collection.objects.link(bpy.data.objects[f'{traph.track_name}_{label_name}'])
 
     # tmp_data补充process信息
     tmp_data['process'] = {}
@@ -267,7 +273,7 @@ def point_list_write(traph, label, tmp_data):
     return point_list
 
 # -----------法线表示类&运行函数-----------
-def build_normal_obj(traph, pos, nor, index, track_name):
+def build_normal_obj(traph, pos, nor, index, track_name, collection):
     scale = 0.06 # 箭头缩放信息待暴露
     # 为指定位置与方向设置法线
     bpy.ops.object.empty_add(type='SINGLE_ARROW', align='WORLD', location=(pos[0]/1000, pos[1]/1000, pos[2]/1000), scale=(scale, scale, scale))
@@ -296,6 +302,8 @@ def build_normal_obj(traph, pos, nor, index, track_name):
     cons_rotation.up_axis = 'UP_Y'
     cons_rotation.target_space = 'WORLD'
     cons_rotation.owner_space = 'WORLD'
+
+    collection.objects.link(obj_tmp)
 
     # 删除临时对象
     bpy.context.view_layer.objects.active = obj_tmp
@@ -422,6 +430,7 @@ def normal_spray_sim(tmp_path, traph):
         label_name = label.split('_')[-1]
         nor_data = []
         spray_data = []
+        collection = bpy.data.collections[label]
         for point in tmp_data[label]:
             nor_data.append(point['n'])
             spray_data.append(point['spray'])
@@ -430,10 +439,10 @@ def normal_spray_sim(tmp_path, traph):
             pos_cur = vertice.co
             # 换算
             euler_cur = nor_data[i]
-            name_father = build_normal_obj(traph, pos_cur, euler_cur, i, f'{traph.track_name}_{label_name}')
-            spray_obj(spray_data[i], pos_cur, f'{traph.track_name}_{label_name}_{i}', name_father)
+            name_father = build_normal_obj(traph, pos_cur, euler_cur, i, f'{traph.track_name}_{label_name}', collection)
+            build_spray_obj(spray_data[i], pos_cur, f'{traph.track_name}_{label_name}_{i}', name_father, collection)
 
-def spray_obj(data_label, pos, name, name_father):
+def build_spray_obj(data_label, pos, name, name_father, collection):
     bpy.ops.mesh.primitive_solid_add()
     obj = bpy.context.object
     obj.location = [pos[0]/1000, pos[1]/1000, pos[2]/1000]
@@ -493,6 +502,7 @@ def spray_obj(data_label, pos, name, name_father):
     
     # 将spray物体设为不可选， 避免操作点时误选
     bpy.data.objects[f'{name}_spray'].hide_select = True
+    collection.objects.link(bpy.data.objects[f'{name}_spray'])
     
         
     
@@ -626,6 +636,11 @@ class Spray_view(bpy.types.Operator):
 
 
 # -----------UI类-----------
+class CustomCollectionUIList(bpy.types.UIList):
+    # 自定义列表类
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.label(text=item.name)
+        
 class Track_ui(bpy.types.Panel):
     bl_idname = "Track_ui"
     bl_label = "轨迹管理工具"
@@ -640,26 +655,33 @@ class Track_ui(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="轨迹文件管理", icon="TRACKING")
-
+        
+        layout.label(text="轨迹导入", icon="TRACKING")
         col = layout.column()
         scene = context.scene.traph
-        
         col.prop(scene, 'input_path', text="导入文件路径")
         col.prop(scene, 'tmp_path', text="临时文件路径")
-
         row = col.row(align=False)
         row.operator("obj.trackinput", text="导入轨迹",icon="IMPORT")
         row.prop(scene, 'clear_blend', text="重置工程数据")
-
+        
+        row = col.row(align=False)
+        row.label(text="轨迹信息", icon="INFO")
+        col.prop(scene, 'track_name', text='轨迹名称')
         row = col.row(align=False)
         row.prop(scene, 'process_type', text="处理类型", icon='MATFLUID')
         row.prop(scene, 'color', text="颜色", icon='COLORSET_13_VEC')
         row.prop(scene, 'oil_brand', text="车漆品牌", icon='COLOR')
+        row = col.row(align=False)
+
+        row.label(text="轨迹库", icon="OUTLINER_COLLECTION")
+        row = col.row(align=False)
+        row.template_list(listtype_name="CustomCollectionUIList", list_id="collection_List", 
+                          dataptr=context.scene.collection, propname="children", active_dataptr=context.scene, 
+                          active_propname="collection_index", rows=3)
         
         row = col.row(align=False)
         row.operator("obj.trackupdate", text="更新轨迹",icon="FILE_REFRESH")
-        col.prop(scene, 'track_name', text='轨迹名称')
         
 
         col.prop(scene, 'output_path', text="导出文件路径")
@@ -677,7 +699,7 @@ def model_input(input_path, traph):
     bpy.context.object.name = 'model'
 
 class Model_input(bpy.types.Operator):
-    # output bvh
+
     bl_label='导入模型'
     bl_idname = 'obj.modelinput' # no da xie
     bl_options = {"REGISTER", "UNDO"}
@@ -685,6 +707,45 @@ class Model_input(bpy.types.Operator):
     def execute(self, context):
         traph = context.scene.traph
         model_input(traph.input_path_model, traph)
+        return {'FINISHED'}
+
+def spray_show(traph):
+    # TODO:检查模型、轨迹是否存在
+
+    # 计算权重
+
+
+
+    # 添加顶点组，在此过程中添加权重
+    if 'model' not in bpy.data.objects:
+        raise ValueError("无可用模型")
+    obj = bpy.data.objects['model']
+    obj.vertex_groups.clear()
+    vg = obj.vertex_groups.new(name='Spray')
+    all_verts = obj.data.vertices
+    n = len(all_verts)
+
+
+
+    for i, vert in enumerate(all_verts):
+        vg.add([vert.index], i/n, 'REPLACE')
+
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+
+
+
+
+
+
+class Spray_show(bpy.types.Operator):
+    bl_label='喷涂仿真'
+    bl_idname = 'obj.sprayshow'
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        traph = context.scene.traph
+        spray_show(traph)
         return {'FINISHED'}
 
 class Model_ui(bpy.types.Panel):
@@ -725,7 +786,9 @@ class Spray_ui(bpy.types.Panel):
         layout.label(text="喷漆管理", icon="MATERIAL_DATA")
 
         col = layout.column()
-        scene = context.scene.traph
+        row = col.row(align=False)
+        row.operator("obj.sprayshow", text="喷涂模拟",icon="IMPORT")
+
         
 # RNA属性 在当前场景中命名为traph子类
 class track_property(bpy.types.PropertyGroup):
@@ -745,19 +808,22 @@ class track_property(bpy.types.PropertyGroup):
     oil_brand: bpy.props.EnumProperty(name='oil_brand',items=[('1','None','无'),('BASF','BASF',''),('3','其他','')])
     
     
-classGroup = [TRACK_TOOL_AddonPreferences,
+classGroup = [CustomCollectionUIList,
+    TRACK_TOOL_AddonPreferences,
               track_property,
               Track_ui,
               Track_input,
               Track_output,
               Track_update,
               Model_input,
+              Spray_show,
               Model_ui,
               Spray_ui
 ]
 
 
 def register():
+    bpy.types.Scene.collection_index = bpy.props.IntProperty() # 自定义列表索引
     for item in classGroup:
         # print(1)
         bpy.utils.register_class(item)
@@ -765,6 +831,7 @@ def register():
 
 
 def unregister():
+    del bpy.types.Scene.collection_index
     for item in classGroup:
         bpy.utils.unregister_class(item)
 
