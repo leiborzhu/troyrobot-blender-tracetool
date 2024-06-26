@@ -1,7 +1,7 @@
 bl_info = {
     "name": "track_tool",
     "author": "zhuhe",
-    "version": (0, 8, 8),
+    "version": (0, 8, 9),
     "blender": (3, 6, 8),
     "location": "View3D > Sidebar >Trace manage",
     "description": "轨迹管理工具",
@@ -9,13 +9,12 @@ bl_info = {
     "doc_url": "",
     "category": "Object",
 }
-# 0.8.8更新
-# spray可视化
-# process支持
+# 0.8.9更新
+# addon info
 
 # 0.9.0更新
 # 喷涂可视化
-
+# 顶点绘制路径
 import bpy
 import os
 import sys
@@ -23,7 +22,7 @@ import json
 import math
 import numpy as np
 import warnings
-
+from bpy.types import AddonPreferences
 from bpy.props import (
         IntProperty,
         FloatProperty,
@@ -32,6 +31,13 @@ from bpy.props import (
         PointerProperty,
         EnumProperty
         )
+# ------------插件信息栏-----------
+class TRACK_TOOL_AddonPreferences(AddonPreferences):
+    bl_idname = __name__
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("wm.url_open", text="使用文档", icon="URL").url = "https://cvk1laalc4v.feishu.cn/wiki/FI94wlctji80CZkkIbJc9c5Rnsg?from=from_copylink"
 
 # ------------导入轨迹类&obj转换&运行函数-----------
 
@@ -103,8 +109,6 @@ def view_update():
     pass
     # bpy.context.space_data.overlay.show_stats = True # 物体信息
     # bpy.context.space_data.overlay.show_object_origins = True
-
-
 
 def track_input(input_path, tmp_path, traph):
     
@@ -643,13 +647,16 @@ class Track_ui(bpy.types.Panel):
         
         col.prop(scene, 'input_path', text="导入文件路径")
         col.prop(scene, 'tmp_path', text="临时文件路径")
+
+        row = col.row(align=False)
+        row.operator("obj.trackinput", text="导入轨迹",icon="IMPORT")
+        row.prop(scene, 'clear_blend', text="重置工程数据")
+
         row = col.row(align=False)
         row.prop(scene, 'process_type', text="处理类型", icon='MATFLUID')
         row.prop(scene, 'color', text="颜色", icon='COLORSET_13_VEC')
         row.prop(scene, 'oil_brand', text="车漆品牌", icon='COLOR')
-        row = col.row(align=False)
-        row.operator("obj.trackinput", text="导入轨迹",icon="IMPORT")
-        row.prop(scene, 'clear_blend', text="重置工程数据")
+        
         row = col.row(align=False)
         row.operator("obj.trackupdate", text="更新轨迹",icon="FILE_REFRESH")
         col.prop(scene, 'track_name', text='轨迹名称')
@@ -657,6 +664,7 @@ class Track_ui(bpy.types.Panel):
 
         col.prop(scene, 'output_path', text="导出文件路径")
         col.operator("obj.trackoutput", text="导出轨迹",icon="EXPORT")
+
 
 def model_input(input_path, traph):
 
@@ -668,7 +676,6 @@ def model_input(input_path, traph):
     init_trans(bpy.context.object)
     bpy.context.object.name = 'model'
 
-
 class Model_input(bpy.types.Operator):
     # output bvh
     bl_label='导入模型'
@@ -679,7 +686,6 @@ class Model_input(bpy.types.Operator):
         traph = context.scene.traph
         model_input(traph.input_path_model, traph)
         return {'FINISHED'}
-
 
 class Model_ui(bpy.types.Panel):
     bl_idname = "Object_ui"
@@ -703,6 +709,23 @@ class Model_ui(bpy.types.Panel):
         row = col.row(align=False)
         row.operator("obj.modelinput", text="导入车模型",icon="IMPORT")
 
+class Spray_ui(bpy.types.Panel):
+    bl_idname = "Spray_ui"
+    bl_label = "喷漆管理工具"
+
+    # 标签分类
+    bl_category = "TRACK TOOL"
+
+    # ui_type
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="喷漆管理", icon="MATERIAL_DATA")
+
+        col = layout.column()
+        scene = context.scene.traph
         
 # RNA属性 在当前场景中命名为traph子类
 class track_property(bpy.types.PropertyGroup):
@@ -722,13 +745,15 @@ class track_property(bpy.types.PropertyGroup):
     oil_brand: bpy.props.EnumProperty(name='oil_brand',items=[('1','None','无'),('BASF','BASF',''),('3','其他','')])
     
     
-classGroup = [track_property,
+classGroup = [TRACK_TOOL_AddonPreferences,
+              track_property,
               Track_ui,
               Track_input,
               Track_output,
               Track_update,
               Model_input,
-              Model_ui
+              Model_ui,
+              Spray_ui
 ]
 
 
